@@ -2,8 +2,8 @@
 
 Beacon is ad-hoc signed today, so macOS drops Screen Recording permission after every update and warns about an
 unidentified developer. A Developer ID signature and Apple's notarization fix both. The release workflow already
-does both (`.github/workflows/release.yml`, `scripts/notarize.ts`) once five secrets exist; without them it signs
-ad hoc and skips notarizing. Planned for v0.21.1.
+does both (`.github/workflows/release.yml`, `scripts/notarize.ts`) with five secrets; without them it signs ad hoc
+and skips notarizing. **Done: v0.22.1 (2026-11-26) is signed and notarized.**
 
 ## Where it stands (2026-11-17)
 
@@ -11,11 +11,17 @@ ad hoc and skips notarizing. Planned for v0.21.1.
 - [x] Certificate signing request made in Keychain Access: the "Orva Studio Limited" public and private key pair is
   in the login keychain. Two unnamed `<key>` pairs above it are likely from an earlier attempt; leave them until the
   certificate is installed and paired, then delete whichever is unused.
-- [ ] Developer ID Application certificate
-- [ ] `.p12` export
-- [ ] App Store Connect API key
-- [ ] The five GitHub secrets
-- [ ] A signed, notarized release
+- [x] Developer ID Application certificate (valid to 2027-12-26; Apple's Developer ID G2 intermediate was missing
+  from the login keychain, so the certificate showed as not valid until it was added from apple.com).
+- [x] `.p12` export. Keychain Access writes RC2-encrypted `.p12`s, which OpenSSL 3 won't open without `-legacy`;
+  the runner's `security import` reads them.
+- [x] App Store Connect API key (Team key, Developer role, Key ID `GFVHGM2PYF`): the App Store Connect API needed
+  **Request Access** once before Team Keys appeared.
+- [x] The five GitHub secrets. Set the password by typing it at `gh secret set`'s prompt; piping `pbpaste` set
+  whatever was on the clipboard (the first run failed on the password, the second on the Issuer ID).
+- [x] A signed, notarized release: v0.22.1. Apple took about 35 minutes over the team's first submission. Checked:
+  `spctl` says "Notarized Developer ID" for the DMG and Beacon.app, the ticket is stapled. Still to see: Screen
+  Recording permission kept across the next update.
 
 ## Next steps
 

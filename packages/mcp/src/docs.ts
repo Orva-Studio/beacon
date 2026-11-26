@@ -1,5 +1,6 @@
 import GUIDE from "../../../skills/SKILL.md" with { type: "text" };
 import ENTRY from "../../../skills/instructions.md" with { type: "text" };
+import CLOUD from "../../../skills/references/cloud.md" with { type: "text" };
 import HOUSE_STYLE from "../../../skills/references/house-style.md" with { type: "text" };
 import EXPORT from "../../../skills/workflows/export.md" with { type: "text" };
 import REVIEW from "../../../skills/workflows/review.md" with { type: "text" };
@@ -20,9 +21,10 @@ function workflow(md: string): Workflow {
 }
 
 /** The server's `instructions`: the entry doc, version-matched by being built in; the full guide is a resource. */
-export const INSTRUCTIONS: string = ENTRY;
+export const INSTRUCTIONS: string =
+  process.platform === "darwin" ? ENTRY : `**This server runs away from a Mac: it edits but doesn't draw, export or transcribe. Read \`beacon://docs/cloud\` first.**\n\n${ENTRY}`;
 
-export const DOCS: Record<string, string> = { guide: GUIDE, "house-style": HOUSE_STYLE };
+export const DOCS: Record<string, string> = { guide: GUIDE, "house-style": HOUSE_STYLE, cloud: CLOUD };
 
 export const WORKFLOWS: Record<string, Workflow> = {
   "rough-cut": workflow(ROUGH_CUT),

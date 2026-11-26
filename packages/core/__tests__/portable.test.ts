@@ -180,3 +180,49 @@ test.skipIf(!existsSync(VIDEO))("a standalone project copies what a link points 
   await core.close(from);
   await core.close(h);
 }, 60_000);
+
+// Projects made by an agent outside the app (by hand, or by `beacon` on a server without Beacon's tools; 2026-11-26).
+test.skipIf(!existsSync(VIDEO))("media a project lists but never measured (written outside the app) is measured as it opens, and stored; nothing to undo", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const made = join(dir, "Made elsewhere.beproj");
+  const h = await core.create({ path: made });
+  await core.close(h);
+  mkdirSync(join(made, "media"));
+  copyFileSync(VIDEO, join(made, "media", "clip.mp4"));
+  const doc = stored(made);
+  doc.assets["asset-1"] = { id: "asset-1", kind: "video", path: "media/clip.mp4", fingerprint: "", derived: {} };
+  writeFileSync(join(made, "project.json"), JSON.stringify(doc));
+
+  const opened = await core.open(made);
+  const asset = core.doc(opened).assets["asset-1"]!;
+  expect((asset.derived.media as { streams: { kind: string }[] }).streams.map((s) => s.kind)).toContain("video");
+  expect(asset.fingerprint).toMatch(/^\d+-\d+$/);
+  expect(stored(made).assets["asset-1"].derived.media).toBeDefined();
+  expect(stored(made).assets["asset-1"].path).toBe("media/clip.mp4");
+  expect((await core.history(opened)).undo).toEqual([]);
+  // Placed from the Media Bin, as an imported file would be.
+  await core.run(opened, "asset.place", { asset: "asset-1", time: 0 });
+  expect(core.doc(opened).tracks.flatMap((t) => t.clips).length).toBeGreaterThan(0);
+  await core.close(opened);
+});
+
+test.skipIf(!existsSync(VIDEO))("a damaged file among unmeasured media doesn't stop the project opening (to relink or remove it), and two opens at once share one", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache") });
+  const made = join(dir, "Damaged.beproj");
+  await core.close(await core.create({ path: made }));
+  mkdirSync(join(made, "media"));
+  copyFileSync(VIDEO, join(made, "media", "good.mp4"));
+  writeFileSync(join(made, "media", "bad.mp4"), "not a video");
+  const doc = stored(made);
+  doc.assets["asset-good"] = { id: "asset-good", kind: "video", path: "media/good.mp4", fingerprint: "", derived: {} };
+  doc.assets["asset-bad"] = { id: "asset-bad", kind: "video", path: "media/bad.mp4", fingerprint: "", derived: {} };
+  writeFileSync(join(made, "project.json"), JSON.stringify(doc));
+
+  const [a, b] = await Promise.all([core.open(made), core.open(made)]);
+  expect(a).toBe(b);
+  const assets = core.doc(a).assets;
+  expect(assets["asset-good"]!.derived.media).toBeDefined();
+  expect(assets["asset-bad"]!.derived).toEqual({});
+  expect(stored(made).assets["asset-good"].derived.media).toBeDefined();
+  await core.close(a);
+});

@@ -3994,12 +3994,12 @@ MCP) is left as it is.
 
 ## 16. Backlog (ideas parked, not scheduled)
 
-### A headless Beacon CLI for cloud agents (the user, 2026-11-26; a future phase)
+### A headless Beacon CLI for cloud agents (the user, 2026-11-26; built on `feat/cli`, Linux)
 Cloud agents, given the assets, make or edit a `.beproj` without the app, on macOS, Linux or Windows. Hand-written
 `project.json` is fragile: absolute asset paths, `derived` media facts Beacon measured, ticks rather than seconds,
 strict feature props, `schemaVersion`. So a CLI runs the same commands the MCP tools do, and `ProjectStore` writes a
 valid project; the rules can't drift from the app's.
-- **Same repo**, `packages/cli`: it is the model, features and commands at one version with the app; a project it
+- **Same repo**, in `packages/mcp` (the MCP server is the CLI): it is the model, features and commands at one version with the app; a project it
   writes opens in the Beacon of that version. Shipped as `bun build --compile` binaries (linux-x64/arm64,
   windows-x64, darwin-arm64) or an npm package. The repo is private and FSL: a compiled binary carries readable JS,
   so publishing it publishes the source.
@@ -4014,6 +4014,26 @@ valid project; the rules can't drift from the app's.
 - First step, cheaper: publish the JSON Schema (`z.toJSONSchema`) and a `beacon validate` an agent runs on JSON it
   wrote by hand.
 - Later: renders on Linux need the engine there (wgpu and FFmpeg port; beacon-html is WebKit, macOS only).
+- **Spike (2026-11-26).** The registry, `ProjectStore` and commands run outside the app with no engine: `asset.add`
+  then `asset.place` made linked video and audio clips that pass `registry.validate`. `bun build --compile` makes
+  ~95 MB binaries for linux-x64 and windows-x64 of that, and of the whole MCP server (`packages/mcp/src/main.ts`):
+  the engine is opened only when a call needs it. Not yet run on Linux (Docker via Colima is installed, not
+  stored relative to it (schema 2). **Run on Linux the same day** (Debian bookworm, arm64, in Colima): the compiled
+  MCP server answered `initialize`, and `project_create` (standalone), `media_import` (ffprobe from apt, through
+  `BEACON_TOOLS_DIR=/usr/bin`) and `timeline_rippleDelete` worked; the project opened on the Mac (its media
+  `media/clip.mp4`, relative), passed `registry.validate` and drew a frame. `frame_at` there failed on the missing
+  engine, its message naming `bun run build:engine` rather than "needs the Beacon app".
+- **Built on `feat/cli` (2026-11-26):** `beacon` is the MCP server (`packages/mcp/src/main.ts`) with
+  `validate <dir>`, `--version` and `--help` in front; no arguments (or `mcp`) serves as the app's beacon-mcp
+  always did. `scripts/build-cli.ts` makes `beacon-linux-{x64,arm64}.tar.gz`; release.yml's `linux` job builds
+  them, runs `scripts/check-cli.ts` on the x64 one (create standalone, import with apt's ffmpeg, cut, describe, a
+  frame refused, validate), and the release publishes them. Away from a Mac, ffmpeg and ffprobe come from PATH
+  (or `BEACON_TOOLS_DIR`), and the engine and Beacon's other tools fail with "needs Beacon's engine, which runs
+  only in the Beacon app on a Mac". Opening a project measures media it lists but never measured (no
+  `derived`, or no fingerprint), as an import would, with nothing to undo. `beacon://docs/cloud` says what works
+  where; the server's instructions point to it away from a Mac.
+- **Later:** Windows (asset paths must start with `/` today, and nothing tests it there); transcripts passed in
+  (or made on the server) so rough cuts and captions work in the cloud; renders on Linux.
 
 ### Relight the camera after the take (the user, 2026-11-04; a future feature)
 The camera's light changed after recording: a key moved to the side, warmer or

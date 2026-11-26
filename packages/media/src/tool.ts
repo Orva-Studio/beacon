@@ -47,11 +47,26 @@ export function toolsDir(): string {
   return join(import.meta.dir, "../../engine/third-party/out/bin");
 }
 
-/** The path of one of Beacon's own tools, for `runTool` and `spawn`. */
+/** `beacon` away from a Mac (a cloud agent's server) has no engine: what needs it says where it can be done. */
+export const ON_MAC = process.platform === "darwin";
+export const needsMac = (what: string) => new Error(`${what} needs Beacon's engine, which runs only in the Beacon app on a Mac: open the project there to do this`);
+
+/**
+ * The path of one of Beacon's own tools, for `runTool` and `spawn`. Away from a Mac, ffmpeg and ffprobe are the
+ * machine's own (PATH) unless `BEACON_TOOLS_DIR` says where: Beacon's builds of them are for the Mac.
+ */
 export function tool(name: ToolName): string {
+  if (!ON_MAC) {
+    if (name !== "ffmpeg" && name !== "ffprobe") throw needsMac(name === "whisper-cli" || name === "beacon-speech" ? "Transcribing" : name);
+    // Never Beacon's own builds here (beside a checkout or binary): they are the Mac's.
+    const dir = process.env.BEACON_TOOLS_DIR;
+    const found = dir ? (existsSync(join(dir, name)) ? join(dir, name) : undefined) : Bun.which(name);
+    if (found) return found;
+    throw new Error(`${name} isn't installed: install FFmpeg (apt-get install ffmpeg), or set BEACON_TOOLS_DIR to the folder with ffmpeg and ffprobe`);
+  }
   const path = join(toolsDir(), name);
-  if (!existsSync(path)) throw new Error(`Beacon's ${name} isn't at ${path}; run \`bun run build\` (it builds Beacon's own tools)`);
-  return path;
+  if (existsSync(path)) return path;
+  throw new Error(`Beacon's ${name} isn't at ${path}; run \`bun run build\` (it builds Beacon's own tools)`);
 }
 
 /**
