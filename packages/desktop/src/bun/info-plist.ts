@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 
 /**
- * Info.plist entries Electrobun's config can't set: the camera and microphone prompts need their usage strings
+ * Info.plist entries Electrobun's config can't set: who makes Beacon (the About window's copyright line), the camera and microphone prompts need their usage strings
  * (the recorder sidecar asks as the app), and a take (`.brec` folder) and a project (`.beproj` folder) are packages,
  * so Finder and Open panels treat each as one file; a project shows Beacon's icon and opens in it on a double-click.
  */
 const ENTRIES: Record<string, string> = {
+  // Under the version in the About window.
+  NSHumanReadableCopyright: JSON.stringify(`© ${new Date().getFullYear()} Orva Studio Limited`),
   NSCameraUsageDescription: JSON.stringify("Beacon records your camera when you choose it as a source."),
   NSMicrophoneUsageDescription: JSON.stringify("Beacon records your microphone when you choose it as a source."),
   UTExportedTypeDeclarations: JSON.stringify([

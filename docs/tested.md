@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## About window: © Orva Studio Limited (`chore/about-copyright`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **The About window's copyright line** (the user, 2026-11-26): `NSHumanReadableCopyright` "© <year> Orva Studio Limited" in the app's Info.plist, which the standard About panel shows under the version | 2026-11-26 | this branch | desktop test (`info-plist.test.ts`) |
+
+### Not checked yet
+
+- Beacon › About Beacon in the next release: does "© 2026 Orva Studio Limited" show under the version?
+
 ## `beacon` for cloud agents on Linux (`feat/cli`)
 
 ### Checked headless only
