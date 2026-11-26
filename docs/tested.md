@@ -5,6 +5,16 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Fonts shown in their own face; one-key learned shortcuts; panels never scroll sideways (`feat/fonts-shortcuts-panels`, PR #60)
+
+### Checked by hand
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **Font menus show each font in its own face** (the user, 2026-11-24): the text callout's Font, the captions' Font and Keywords › Font are Beacon's own list (the system's can't draw options in their fonts), your fonts first, then every installed one; a search box narrows them as you type; the font under the pointer or keys previews on the canvas with no edit, Esc goes back, a click or ↩ sets it in one step | 2026-11-26 | 54f34e2 | the user, in the app |
+| **Learned shortcuts are one key where free** (the user, 2026-11-24: Monitor and Clip Speed opened a submenu, two presses after the leader): offers take one letter of the name (`: D` for Drop Shadow) before a pair; ones already learned as pairs become their first key when nothing else has or starts with it, two sharing a first key keep their pairs | 2026-11-26 | 54f34e2 | the user, in the app |
+| **The right-hand panels scroll only up and down** (the user, 2026-11-24: Properties scrolled sideways): Properties, Auphonic, Remove Silences and the reviews hide sideways overflow; WebKit's classic scrollbars gave them a sideways one | 2026-11-26 | 54f34e2 | the user, in the app |
+
 ## Media Bin: ⌫ after ⇧-double-click, Delete Media asks, audio previews play (`fix/bin-delete-and-audio-preview`)
 
 ### Checked headless only

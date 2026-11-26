@@ -48,10 +48,11 @@ export interface ShortcutOffer {
 }
 
 /**
- * Keys for an item, after the leader: two letters from its name where free (Drop Shadow → D S, then D R…), else the
- * first free pair. Never keys another action has, nor ones the user cleared from an action; a sequence can't be the
- * start of another, or have another as its start. Its first key is never one Beacon's own sequences start with
- * (`ownFirst`): a learned shortcut doesn't join Color Label's group, say. Learned ones may share a first key.
+ * Keys for an item, after the leader: one letter from its name where free (Drop Shadow → D, then S…), so the leader
+ * popup runs it rather than opening a group (the user, 2026-11-24); else two (D S, then D R…), else the first free
+ * pair. Never keys another action has, nor ones the user cleared from an action; a sequence can't be the start of
+ * another, or have another as its start. Its first key is never one Beacon's own sequences start with (`ownFirst`):
+ * a learned shortcut doesn't join Color Label's group, say. Learned pairs may share a first key.
  */
 export function pickKeys(name: string, leader: Keys, taken: Keys[], ownFirst: Set<string> = new Set()): Keys | undefined {
   const words = name.toLowerCase().replace(/[^a-z ]/g, " ").split(/\s+/).filter(Boolean);
@@ -59,6 +60,10 @@ export function pickKeys(name: string, leader: Keys, taken: Keys[], ownFirst: Se
   const initials = words.map((w) => w[0]!);
   const letters = [...words.join("")];
   const firsts = [...new Set([...initials, ...letters, ...alphabet])].filter((a) => !ownFirst.has(a));
+  for (const a of firsts) {
+    const keys: Keys = { key: leader.key, modifiers: leader.modifiers, then: [{ key: a, modifiers: [] }] };
+    if (!taken.some((t) => keysClash(t, keys))) return keys;
+  }
   for (const a of firsts) {
     for (const b of [...new Set([...initials, ...letters, ...alphabet])]) {
       if (b === a) continue;
@@ -93,6 +98,23 @@ export function offers(file: LearnedFile, usage: Record<string, number[]>, items
     out.push({ item, name: action.name, keys: k, uses: times.length });
   }
   return out.slice(0, MOST_LEARNED - file.shortcuts.length);
+}
+
+/**
+ * Learned shortcuts from before they could be one key (`: O M`) cut to their first key (`: O`) where nothing else
+ * (`taken`, or another learned one) has or starts with it. Keys as stored, on the default leader.
+ */
+export function shorten(file: LearnedFile, taken: Keys[]): boolean {
+  let changed = false;
+  for (const s of file.shortcuts) {
+    if (s.keys.then?.length !== 2) continue;
+    const one: Keys = { ...s.keys, then: [s.keys.then[0]!] };
+    const others = [...taken, ...file.shortcuts.filter((x) => x !== s).map((x) => x.keys)];
+    if (others.some((t) => keysClash(t, one))) continue;
+    s.keys = one;
+    changed = true;
+  }
+  return changed;
 }
 
 /** Learned shortcuts gone unused for UNUSED_DAYS days of use, after counting today as one. */

@@ -54,7 +54,7 @@ export function Properties({ project: full, session, host, init }: { project: Pr
   return (
     <div
       ref={panel}
-      className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-y-auto text-body`}
+      className={`panel-card flex ${SIDE_PANEL} shrink-0 flex-col overflow-x-hidden overflow-y-auto text-body`}
       // Tab and ⇧Tab go through the inputs in order (value boxes, menus, colour wells); Esc gives the keys back to the timeline.
       onKeyDown={(e) => {
         if (e.key === "Escape" && panel.current?.contains(document.activeElement)) {
@@ -156,7 +156,7 @@ function ClipProperties({
         <ClipSpeed clip={clip} selected={selected} fps={rationalToNumber(project.settings.fps)} host={host} />
       )}
       {tab?.id === "cursor" && <Cursor value={value} clip={clip} edit={edit} />}
-      {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} />}
+      {tab?.id === "callout" && <CalloutProps clip={clip} edit={edit} host={host} at={session.playhead} />}
       {tab?.id === "region" && <RegionProps clip={clip} value={value} edit={edit} />}
       {tab?.id === "caption" && <CaptionProps key={clip.id} clip={clip} selected={selected} project={project} host={host} />}
       {tab?.id === "broll" && <BrollTab key={clip.id} clip={clip} project={project} session={session} host={host} />}
@@ -347,23 +347,40 @@ const WEIGHTS: [number, string][] = [
   [700, "Bold"],
 ];
 
-/** Font and Weight rows: the families the user's projects use first, then every installed one (`installed`). */
-function FontRows({ font, weight, installed, set, label }: { font: string; weight: number; installed?: string[]; set: (fields: { font?: string; weight?: number }, label: string) => void; label: string }) {
+/**
+ * A font menu with each name in its own face: the families the user's projects use first, then every installed one
+ * (`installed`), narrowed by typing. Moving over a font previews it (`onPreview`, null to go back); `none` is a first
+ * option with no font ("The caption's").
+ */
+function FontSelect({ value, installed, onChange, onPreview, none, ...rest }: { value: string; installed?: string[]; onChange: (font: string) => void; onPreview: (font: string | null) => void; none?: string } & Record<`data-${string}`, unknown>) {
+  const yours = [...new Set([...(value ? [value] : []), ...FONTS])];
+  const face = (f: string) => ({ fontFamily: `"${f}", system-ui` });
+  const options = [
+    ...(none ? [{ id: "", label: none }] : []),
+    ...yours.map((f) => ({ id: f, label: f, group: "Your fonts", style: face(f) })),
+    ...(installed ?? []).filter((f) => !yours.includes(f)).map((f) => ({ id: f, label: f, group: "All fonts", style: face(f) })),
+  ];
+  return (
+    <ListSelect
+      {...rest}
+      value={value}
+      options={options}
+      search="Search fonts"
+      onPreview={onPreview}
+      onChange={(f) => {
+        if (f !== value) onChange(f);
+        onPreview(null);
+      }}
+    />
+  );
+}
+
+/** Font and Weight rows; the font menu previews each font on the canvas (`preview`). */
+function FontRows({ font, weight, installed, set, preview, label }: { font: string; weight: number; installed?: string[]; set: (fields: { font?: string; weight?: number }, label: string) => void; preview: (font: string | null) => void; label: string }) {
   return (
     <>
       <Row label="Font">
-        <Select value={font} onChange={(e) => set({ font: e.target.value }, label)}>
-          {[...new Set([font, ...FONTS])].map((f) => (
-            <option key={f}>{f}</option>
-          ))}
-          {installed && (
-            <optgroup label="All fonts">
-              {installed.filter((f) => f !== font && !FONTS.includes(f)).map((f) => (
-                <option key={f}>{f}</option>
-              ))}
-            </optgroup>
-          )}
-        </Select>
+        <FontSelect value={font} installed={installed} onChange={(f) => set({ font: f }, label)} onPreview={preview} data-font />
       </Row>
       <Row label="Weight">
         <Select value={weight} onChange={(e) => set({ weight: Number(e.target.value) }, label)}>
@@ -382,7 +399,7 @@ type Count = { from: number; to: number; seconds: number; decimals: number };
 type CalloutProp = { shape: string; cornerRadius: number; count?: Count; fill?: RGBA; stroke?: { color: RGBA; width: number }; text?: { text: string; font: string; weight: number; size: number; color: RGBA; align: string } & Record<string, unknown> };
 
 /** Annotation properties, what the user changes: text, font, size, colour; a shape's fill, outline and corners. */
-function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host }) {
+function CalloutProps({ clip, edit, host, at }: { clip: Clip; edit: Edit; host: Host; at: number }) {
   const c = clip.props.callout as CalloutProp | undefined;
   const installed = useQuery<string[]>(host, "callout.fonts");
   const editing = useView((v) => v.editingText);
@@ -405,7 +422,14 @@ function CalloutProps({ clip, edit, host }: { clip: Clip; edit: Edit; host: Host
             value={text.text}
             onChange={(e) => setText({ text: e.target.value }, "Edit Text", `text-${clip.id}`)}
           />
-          <FontRows font={text.font} weight={text.weight} installed={installed} set={setText} label="Font" />
+          <FontRows
+            font={text.font}
+            weight={text.weight}
+            installed={installed}
+            set={setText}
+            preview={(font) => host.previewEffect(font === null ? null : { command: "clip.set", args: { clips: [clip.id], props: { callout: { text: { ...text, font } } }, at } })}
+            label="Font"
+          />
           <Slider unit="" label="Size" value={text.size} min={8} max={400} onChange={(v, key) => setText({ size: Math.max(8, v) }, "Font Size", key)} />
           <ColorRow label="Color" color={text.color} onChange={(color, key) => setText({ color }, "Text Color", key)} />
           <Row label="Align">
@@ -541,7 +565,7 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
           />
         </Row>
         <div className="mb-3 text-label text-text-faint">{style.layout === "headline" ? "Every headline" : "Every caption"}</div>
-        <FontRows font={style.font} weight={style.weight} installed={installed} set={set} label="Caption Font" />
+        <FontRows font={style.font} weight={style.weight} installed={installed} set={set} preview={(font) => host.previewEffect(font === null ? null : { command: "captions.style", args: { style: { font }, track: track.id } })} label="Caption Font" />
         <Slider unit="" label="Size" value={style.size} min={12} max={200} onChange={(v, key) => set({ size: Math.max(12, v) }, "Caption Size", key)} />
         <ColorRow label="Color" color={style.color} onChange={(color, key) => set({ color }, "Caption Color", key)} />
         <div className="mt-3 ml-[92px]">
@@ -614,19 +638,14 @@ function CaptionProps({ clip, selected, project, host }: { clip: Clip; selected:
         <ColorRow label="Color" color={em.color} onChange={(color, key) => setEm({ color }, "Keyword Color", key)} />
         <Slider unit="%" label="Size" value={Math.round(em.scale * 100)} min={50} max={400} onChange={(v, key) => setEm({ scale: Math.min(4, Math.max(0.5, v / 100)) }, "Keyword Size", key)} />
         <Row label="Font">
-          <Select data-caption-em-font value={em.font} onChange={(e) => setEm({ font: e.target.value }, "Keyword Font")}>
-            <option value="">The caption's</option>
-            {[...new Set([...(em.font ? [em.font] : []), ...FONTS])].map((f) => (
-              <option key={f}>{f}</option>
-            ))}
-            {installed && (
-              <optgroup label="All fonts">
-                {installed.filter((f) => f !== em.font && !FONTS.includes(f)).map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </optgroup>
-            )}
-          </Select>
+          <FontSelect
+            data-caption-em-font
+            value={em.font}
+            none="The caption's"
+            installed={installed}
+            onChange={(font) => setEm({ font }, "Keyword Font")}
+            onPreview={(font) => host.previewEffect(font === null ? null : { command: "captions.style", args: { style: { emphasis: { font } }, track: track.id } })}
+          />
         </Row>
         <Row label="Weight">
           <Select value={em.weight} onChange={(e) => setEm({ weight: Number(e.target.value) }, "Keyword Weight")}>
