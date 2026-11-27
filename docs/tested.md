@@ -6,6 +6,7 @@ window. A change to something after its check moves it back to *Not checked yet*
 feature lands and when it is checked.
 
 ## YouTube's 16:9 safe areas removed; Record opens System Settings (`feat/no-youtube-safe-areas`)
+## Paste Properties over a ⇧-click run (`feat/paste-effects-many`)
 
 ### Checked headless only
 
@@ -18,6 +19,7 @@ feature lands and when it is checked.
 
 - View › Safe Areas: TikTok, Instagram Reels and YouTube Shorts only; on a 16:9 project the top bar has no safe-area picker.
 - Record with a permission turned off in System Settings: does Open System Settings land on its page?
+| **⇧⌘C, a click and a ⇧-click, then ⇧⌘V** (the user, 2026-11-27): every clip in the run gets the copied effect once, one undo step. Already worked; this pins it | 2026-11-27 | this branch | UI flow (`⇧⌘C on a clip with an effect…`, real clicks and keys on four pieces of a split clip) |
 
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 

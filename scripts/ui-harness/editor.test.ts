@@ -468,6 +468,43 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
+test.skipIf(skip)("⇧⌘C on a clip with an effect, a click and a ⇧-click selecting a run of clips, then ⇧⌘V gives every clip in the run the effect, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    const s = clip(screen.id);
+    const at = (f: number) => ticksToSeconds(s.start + s.duration * f);
+    const pieces = () => clips().filter((c) => c.type === "screen" && c.assetId === s.assetId);
+    for (const f of [0.25, 0.5, 0.75]) await run("clip.split", { at: at(f), clips: pieces().map((c) => c.id), linked: false });
+    const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+    const run4 = track.clips.filter((c) => c.type === "screen").sort((a, b) => a.start - b.start).map((c) => c.id);
+    expect(run4.length).toBe(4);
+    await run("effect.add", { clip: run4[0]!, type: "drop-shadow" });
+    await run("timeline.zoom", { to: "fit" });
+    await run("selection.clear");
+    await Bun.sleep(200);
+    const before = (await ui.core.history(ui.handle)).undo.length;
+
+    const settle = async (ok: (s: Awaited<ReturnType<typeof session>>) => boolean) => {
+      for (const end = Date.now() + 5000; !ok(await session()) && Date.now() < end; ) await Bun.sleep(20);
+      return session();
+    };
+    await page.click(...(await timelineClipCentre(run4[0]!)));
+    expect((await settle((x) => x.selection.includes(run4[0]!))).selection).toContain(run4[0]!);
+    const copied = (await session()).properties;
+    await page.key("c", "KeyC", ["shift", "meta"]);
+    expect((await settle((x) => x.properties !== copied)).properties?.effects.map((e) => e.type)).toContain("drop-shadow");
+    await page.click(...(await timelineClipCentre(run4[3]!)), ["shift"]);
+    expect((await settle((x) => run4.every((id) => x.selection.includes(id)))).selection).toEqual(expect.arrayContaining(run4));
+    await page.key("v", "KeyV", ["shift", "meta"]);
+    await arrived(() => run4.every((id) => clip(id).effects.some((e) => e.type === "drop-shadow")));
+    for (const id of run4) expect(clip(id).effects.filter((e) => e.type === "drop-shadow").length).toBe(1);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 1);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await run("selection.clear");
+  }
+}, 30_000);
+
 test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the selected clip's speed tab; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
