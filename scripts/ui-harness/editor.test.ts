@@ -468,6 +468,43 @@ test.skipIf(skip)("copy a clip, paste onto another selected clip gives it the ef
   await run("playhead.set", { time: 2 });
 });
 
+test.skipIf(skip)("⇧⌘C on a clip with an effect, a click and a ⇧-click selecting a run of clips, then ⇧⌘V gives every clip in the run the effect, one undo step", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  try {
+    const s = clip(screen.id);
+    const at = (f: number) => ticksToSeconds(s.start + s.duration * f);
+    const pieces = () => clips().filter((c) => c.type === "screen" && c.assetId === s.assetId);
+    for (const f of [0.25, 0.5, 0.75]) await run("clip.split", { at: at(f), clips: pieces().map((c) => c.id), linked: false });
+    const track = ui.core.doc(ui.handle).tracks.find((t) => t.clips.some((c) => c.id === screen.id))!;
+    const run4 = track.clips.filter((c) => c.type === "screen").sort((a, b) => a.start - b.start).map((c) => c.id);
+    expect(run4.length).toBe(4);
+    await run("effect.add", { clip: run4[0]!, type: "drop-shadow" });
+    await run("timeline.zoom", { to: "fit" });
+    await run("selection.clear");
+    await Bun.sleep(200);
+    const before = (await ui.core.history(ui.handle)).undo.length;
+
+    const settle = async (ok: (s: Awaited<ReturnType<typeof session>>) => boolean) => {
+      for (const end = Date.now() + 5000; !ok(await session()) && Date.now() < end; ) await Bun.sleep(20);
+      return session();
+    };
+    await page.click(...(await timelineClipCentre(run4[0]!)));
+    expect((await settle((x) => x.selection.includes(run4[0]!))).selection).toContain(run4[0]!);
+    const copied = (await session()).properties;
+    await page.key("c", "KeyC", ["shift", "meta"]);
+    expect((await settle((x) => x.properties !== copied)).properties?.effects.map((e) => e.type)).toContain("drop-shadow");
+    await page.click(...(await timelineClipCentre(run4[3]!)), ["shift"]);
+    expect((await settle((x) => run4.every((id) => x.selection.includes(id)))).selection).toEqual(expect.arrayContaining(run4));
+    await page.key("v", "KeyV", ["shift", "meta"]);
+    await arrived(() => run4.every((id) => clip(id).effects.some((e) => e.type === "drop-shadow")));
+    for (const id of run4) expect(clip(id).effects.filter((e) => e.type === "drop-shadow").length).toBe(1);
+    expect((await ui.core.history(ui.handle)).undo.length).toBe(before + 1);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+    await run("selection.clear");
+  }
+}, 30_000);
+
 test.skipIf(skip)("Clip Speed (a Visual Effects tile, double-clicked) shows the selected clip's speed tab; editing its duration sets the speed of the selected clip only", async () => {
   await select([screen.id]);
   await run("inspector.tab", { tab: "transform" });
@@ -1317,6 +1354,10 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
   await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
   await page.until("!!document.querySelector('[data-permission=camera]')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-permission=screen]')")).toBe(false);
+  const opened = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-permission-open=camera]').click()");
+  await arrived(() => ui.menus.slice(opened).includes("app:app.privacy:camera"));
   await page.evaluate(`document.querySelector('[data-source="System audio"]').click()`);
   const before = ui.menus.length;
   await page.evaluate("document.querySelector('[data-record-start]').click()");
@@ -4848,6 +4889,27 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
   }
 }, 60_000);
 
+test.skipIf(skip)("a 16:9 project saved showing YouTube's safe areas (since removed) opens with none: no picker, no zones drawn", async () => {
+  const cacheDir = join(dir, "wide-safe-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "wide-safe.beproj");
+  const h = await core.create({ path, settings: { width: 1920, height: 1080 } });
+  await core.run(h, "edit.addAnnotation", { preset: "text", time: 0, duration: 4 });
+  await core.close(h);
+  writeFileSync(join(path, "editor.json"), JSON.stringify({ features: { "safe-areas": { layout: "youtube" } } }));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    await p.until("!!document.querySelector('[data-canvas-overlay]')");
+    await Bun.sleep(500);
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-safe-areas]')")).toBe(false);
+    expect(await p.evaluate<number>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length")).toBe(0);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 60_000);
+
 test.skipIf(skip)("Captions makes caption clips from the transcript and shows the first; its text is edited in place and a style change restyles every caption, each one undo step", async () => {
   await select([]);
   await run("panel.show", { tool: "ai" });
@@ -6597,6 +6659,49 @@ test.skipIf(skip)("a section's colour is chosen from its right-click menu's Colo
     while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
   }
 }, 30_000);
+
+test.skipIf(skip)("Comment on Clip (the clip menu) writes a comment over the clip, or the selection it is in, its text starting with their ids; Enter alone saves the ids", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const comments = () => ui.core.doc(ui.handle).comments;
+  const open = async (clipId: string) => {
+    ui.send("commentAction", { comment: clipId, op: "clip" });
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    return page.evaluate<string>("document.activeElement.value");
+  };
+  try {
+    await select([screen.id]);
+    await Bun.sleep(200);
+    expect(await open(screen.id)).toBe(`[${screen.id}] `);
+    // Typed after the ids, which stay.
+    await page.evaluate(`document.execCommand('insertText', false, 'zoom in on the menu')`);
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 1);
+    const c = comments()[0]!;
+    expect(c.text).toBe(`[${screen.id}] zoom in on the menu`);
+    expect([c.start, c.end]).toEqual([clip(screen.id).start, clip(screen.id).start + clip(screen.id).duration]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Comment");
+
+    // Two selected, right-clicked on one: both ids, over both.
+    await select([screen.id, callout.id]);
+    await Bun.sleep(200);
+    expect(await open(callout.id)).toBe(`[${screen.id}, ${callout.id}] `);
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 2);
+    const both = comments().find((x) => x.id !== c.id)!;
+    expect(both.text).toBe(`[${screen.id}, ${callout.id}]`);
+    const ends = [screen.id, callout.id].map((id) => clip(id).start + clip(id).duration);
+    expect(both.start).toBe(Math.min(clip(screen.id).start, clip(callout.id).start));
+    expect(both.end).toBe(Math.max(...ends));
+
+    // Esc leaves none.
+    await open(screen.id);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-comment-editor]')");
+    expect(comments()).toHaveLength(2);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
+});
 
 test.skipIf(skip)("Comments: a lane under the Sections band; a plain press scrubs, a double-click-drag writes one over a stretch, ⌥-drag one over others, ⇧M one at the playhead (typed first, ⇧Enter a new line); they overlap each other and sections; hovered, its text shows; a click picks it and takes the playhead there, a double-click edits, a drag moves it, right-click offers its menu, ⌫ deletes it", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;

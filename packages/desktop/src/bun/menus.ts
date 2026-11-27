@@ -210,7 +210,6 @@ export function createMenus(app: MenusApp) {
                   ["tiktok", "TikTok"],
                   ["reels", "Instagram Reels"],
                   ["shorts", "YouTube Shorts"],
-                  ["youtube", "YouTube (16:9)"],
                 ] as const
               ).map(([id, label]) => ({ ...item(`safeAreas.show:${id}`, { label, enabled: open }), checked: safeArea === id })),
             ],
@@ -292,6 +291,7 @@ export function createMenus(app: MenusApp) {
       action("edit.cut"),
       action("edit.copy"),
       own("Copy ID", "copyId"),
+      own("Comment on Clip", "comment"),
       SEPARATOR,
       action("edit.delete"),
       ...(target?.linkId ? [SEPARATOR, action("edit.unlink")] : []),
@@ -487,6 +487,7 @@ export function createMenus(app: MenusApp) {
     const run = (command: string, args: unknown = {}) => void core.run(h, command, args).catch(fail);
     if (op.startsWith("label=")) run("edit.label", { color: op === "label=none" ? null : op.slice(6) });
     if (op === "angle") run("angles.add", { camera: clip });
+    if (op === "comment") message("commentAction", { comment: clip, op: "clip" });
     if (op === "copyId")
       void core.session(h).then((s) => {
         const ids = copiedIds(s.selection, clip);

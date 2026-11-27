@@ -1768,7 +1768,9 @@ Seeing more at once.
   line; the top bar counts the captions and callouts under a zone and goes to
   the first; boxes snap to the zones' edges. The contract gained
   `Feature.sessionSaved` (editor state kept in the project's `editor.json`,
-  never an undo step) and the session in queries.
+  never an undo step) and the session in queries. **YouTube's 16:9 layout
+  removed 2026-11-27** (the user), with the title-safe frame and end-screen
+  check only it had; 9:16 TikTok, Reels and Shorts stay.
 **Gate:** two projects open side by side, the film look matches between
 preview and export and a `.hlook` imports with a report of what didn't
 map, and a 9:16 Short checks clean against its platform's safe areas.
@@ -4034,6 +4036,18 @@ valid project; the rules can't drift from the app's.
   where; the server's instructions point to it away from a Mac.
 - **Later:** Windows (asset paths must start with `/` today, and nothing tests it there); transcripts passed in
   (or made on the server) so rough cuts and captions work in the cloud; renders on Linux.
+
+### Permissions made easier (the user, 2026-11-27; candidate)
+
+- **Drag Beacon into the list.** When a permission is off, open System Settings on its page (done: Record's
+  Open System Settings) and float a small panel beside it with Beacon's icon to drag into the list, as some
+  Mac apps do (the panel follows System Settings' window and leaves once the switch is on).
+- **Quit & Reopen doesn't reopen Beacon** (the user, 2026-11-27): after a privacy switch, macOS's Quit &
+  Reopen quits Beacon (the quit log shows it closing in milliseconds) but never starts it again. Unproven
+  cause: Beacon is two processes (Electrobun's `launcher` and the `bun` main process it starts), and macOS
+  may watch the one it asked to quit. To find out: quit the installed app with the same Apple Event and
+  watch which process goes when. Whatever the cause, Beacon can offer its own Relaunch once a switch turns
+  on (it reads the permissions without prompting), so nobody depends on macOS's button.
 
 ### Relight the camera after the take (the user, 2026-11-04; a future feature)
 The camera's light changed after recording: a key moved to the side, warmer or

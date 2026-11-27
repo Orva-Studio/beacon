@@ -450,7 +450,8 @@ export type AppRPC = {
       /** A section menu's choice the window carries out: rename it. */
       sectionAction: { section: string; op: "rename" };
       /** A comment menu's choice the window carries out (`new`: Add Comment from the menu bar, at the playhead). */
-      commentAction: { comment?: string; op: "edit" | "new" };
+      /** `clip`: a new comment on the clip whose id is `comment` (Comment on Clip). */
+      commentAction: { comment?: string; op: "edit" | "new" | "clip" };
       /** Start editing a Media Bin item's name (Rename… in its menu). */
       renameMedia: { asset: string };
       /** Delete Media from the item's menu: the window asks first when clips on the timeline use it. */

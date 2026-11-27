@@ -14,8 +14,6 @@ export interface SafeLayout {
   source: string;
   fits: boolean;
   zones: { id: string; label: string; rect: Rect }[];
-  titleSafe?: Rect;
-  endScreen?: number;
   headroom: [number, number];
   eyeLine: number;
 }
@@ -49,7 +47,7 @@ export function useSafeAreas(host: QueryHost, project: Project | undefined, sess
 /** A filled band: a square-ended line `width` points thick. */
 const band = (from: [number, number], to: [number, number], color: RGBA, width: number): CanvasMark => ({ kind: "line", from, to, width, color, butt: true });
 
-/** The canvas's safe-area marks: each zone a red band with an edge, the title-safe frame, the blue headroom band and a dashed eye line. */
+/** The canvas's safe-area marks: each zone a red band with an edge, the blue headroom band and a dashed eye line. */
 export function safeAreaMarks(l: SafeLayout, at: (x: number, y: number) => [number, number], k: number, width: number, hidden: SafePart[] = []): CanvasMark[] {
   const out: CanvasMark[] = [];
   const off = new Set(hidden);
@@ -65,7 +63,6 @@ export function safeAreaMarks(l: SafeLayout, at: (x: number, y: number) => [numb
     out.push(band(at(x0, (y0 + y1) / 2), at(x1, (y0 + y1) / 2), COLOR.safeZone, (y1 - y0) * k));
     out.push(...box(z.rect, COLOR.safeEdge));
   }
-  if (l.titleSafe && !off.has("zones")) out.push(...box(l.titleSafe, COLOR.safeGuide));
   const [h0, h1] = l.headroom;
   if (!off.has("headroom")) {
     out.push(band(at(0, (h0 + h1) / 2), at(width, (h0 + h1) / 2), COLOR.safeHeadroom, (h1 - h0) * k));
@@ -80,7 +77,7 @@ export function safeAreaMarks(l: SafeLayout, at: (x: number, y: number) => [numb
 export function safeAreaLines(l: SafeLayout): { x: Line[]; y: Line[] } {
   const x: Line[] = [];
   const y: Line[] = [];
-  for (const [x0, y0, x1, y1] of [...l.zones.map((z) => z.rect), ...(l.titleSafe ? [l.titleSafe] : [])]) {
+  for (const [x0, y0, x1, y1] of l.zones.map((z) => z.rect)) {
     x.push({ at: x0, span: [y0, y1] }, { at: x1, span: [y0, y1] });
     y.push({ at: y0, span: [x0, x1] }, { at: y1, span: [x0, x1] });
   }
@@ -92,7 +89,8 @@ export function safeAreaLines(l: SafeLayout): { x: Line[]; y: Line[] } {
  * shown, how many captions and callouts its UI would cover; a click goes to the first, selected.
  */
 export function SafeAreaPicker({ host, project, session, layouts }: { host: QueryHost; project: Project; session: Session; layouts: SafeLayout[] }) {
-  const id = shownSafeArea(session);
+  // A layout Beacon no longer has (YouTube's 16:9) shows as none.
+  const id = layouts.find((l) => l.id === shownSafeArea(session))?.id;
   const check = useQuery<SafeCheck>(host, id ? "safeAreas.check" : "", { layout: id }, project);
   const fitting = layouts.filter((l) => l.fits);
   if (!fitting.length && !id) return null;
