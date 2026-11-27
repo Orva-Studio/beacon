@@ -1,4 +1,6 @@
+import { ticksToSeconds } from "@beacon/model";
 import { useEffect, useRef, type CSSProperties } from "react";
+import { copiedIds } from "./clip-ids";
 import { PLAIN_TEXT } from "./controls/buttons";
 import { replica } from "./store";
 
@@ -11,10 +13,27 @@ export function newComment() {
 }
 
 /**
+ * Comment on Clip (the clip menu): a new comment over the clicked clip, or the selection it is in, from the first's
+ * start to the last's end, its text starting with their ids so an agent knows which clips it means.
+ */
+export function clipComment(clip: string) {
+  const { session, project } = replica.get();
+  if (!session || !project) return;
+  if (session.group) return replica.status("Close the group (⌃⇧U) to add a comment");
+  const ids = copiedIds(session.selection, clip).split(", ");
+  const on = project.tracks.flatMap((t) => t.clips).filter((c) => ids.includes(c.id));
+  if (!on.length) return;
+  const start = Math.min(...on.map((c) => c.start));
+  const end = Math.max(...on.map((c) => c.start + c.duration));
+  replica.editComment({ start: ticksToSeconds(start), end: ticksToSeconds(end), text: `[${on.map((c) => c.id).join(", ")}] ` });
+}
+
+/**
  * Writes a comment: what should change there, for an agent, or a note. Enter saves, ⇧Enter starts a new line, Esc
  * leaves it as it was; a press outside saves what was typed (a long comment shouldn't be lost to a stray click).
  */
-export function CommentEditor({ value, where, style, onDone }: { value: string; where: string; style: CSSProperties; onDone: (text: string | null) => void }) {
+/** `opening`: text a new comment starts with, saved even if nothing is typed after it. */
+export function CommentEditor({ value, opening, where, style, onDone }: { value: string; opening?: string; where: string; style: CSSProperties; onDone: (text: string | null) => void }) {
   const field = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const done = useRef(false);
@@ -35,7 +54,14 @@ export function CommentEditor({ value, where, style, onDone }: { value: string; 
   };
   useEffect(() => {
     grow();
-    requestAnimationFrame(() => (field.current?.focus(), field.current?.select()));
+    // Opening words stay, the caret after them; otherwise all of it selected, to type over.
+    requestAnimationFrame(() => {
+      const el = field.current;
+      if (!el) return;
+      el.focus();
+      if (opening) el.setSelectionRange(el.value.length, el.value.length);
+      else el.select();
+    });
     const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && save();
     window.addEventListener("pointerdown", away, true);
     return () => window.removeEventListener("pointerdown", away, true);
@@ -60,7 +86,7 @@ export function CommentEditor({ value, where, style, onDone }: { value: string; 
       <textarea
         {...PLAIN_TEXT}
         ref={field}
-        defaultValue={value}
+        defaultValue={opening ?? value}
         rows={2}
         placeholder="What should change here"
         className="resize-none rounded-sm border border-divider bg-well px-2 py-1 text-body leading-snug text-text-strong outline-none focus:border-accent"

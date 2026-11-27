@@ -1,7 +1,7 @@
 import { recordPreviewEvent } from "./record-preview";
 import type { AppRPC } from "./rpc";
 import { ticksToSeconds } from "@beacon/model";
-import { newComment } from "./comment-editor";
+import { clipComment, newComment } from "./comment-editor";
 import { mediaToDelete } from "./media-bin";
 import { replica } from "./store";
 
@@ -22,6 +22,7 @@ export const messageHandlers: { [K in Exclude<keyof Messages, "patches" | "key">
   },
   commentAction: ({ comment, op }) => {
     if (op === "new") return newComment();
+    if (op === "clip") return comment ? clipComment(comment) : undefined;
     const c = replica.get().project?.comments.find((x) => x.id === comment);
     if (c && op === "edit") replica.editComment({ id: c.id, start: ticksToSeconds(c.start) });
   },

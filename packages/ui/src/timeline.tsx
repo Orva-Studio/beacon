@@ -199,6 +199,7 @@ export function Timeline({ project: full, session, waveforms, thumbs, clipTypes,
             <CommentEditor
               key={editingComment.id ?? `${editingComment.start}`}
               value={c?.text ?? ""}
+              {...(!c && editingComment.text ? { opening: editingComment.text } : {})}
               where={((a, b) => (b === undefined ? `at ${clock(a)}` : `${clock(a)}–${clock(b)}`))(c ? ticksToSeconds(c.start) : editingComment.start, c ? (c.end === undefined ? undefined : ticksToSeconds(c.end)) : editingComment.end)}
               style={{ left: Math.min(Math.max(HEADER, hits.xOf(editingComment.start) - 8), Math.max(HEADER, size.current.w - 296)), top: TRACKS_TOP + 2, maxHeight: Math.max(120, size.current.h - TRACKS_TOP - 8) }}
               onDone={(text) => {

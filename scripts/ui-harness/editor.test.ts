@@ -6660,6 +6660,49 @@ test.skipIf(skip)("a section's colour is chosen from its right-click menu's Colo
   }
 }, 30_000);
 
+test.skipIf(skip)("Comment on Clip (the clip menu) writes a comment over the clip, or the selection it is in, its text starting with their ids; Enter alone saves the ids", async () => {
+  const steps = (await ui.core.history(ui.handle)).undo.length;
+  const comments = () => ui.core.doc(ui.handle).comments;
+  const open = async (clipId: string) => {
+    ui.send("commentAction", { comment: clipId, op: "clip" });
+    await page.until("document.activeElement?.hasAttribute('data-comment-text')", 5000);
+    return page.evaluate<string>("document.activeElement.value");
+  };
+  try {
+    await select([screen.id]);
+    await Bun.sleep(200);
+    expect(await open(screen.id)).toBe(`[${screen.id}] `);
+    // Typed after the ids, which stay.
+    await page.evaluate(`document.execCommand('insertText', false, 'zoom in on the menu')`);
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 1);
+    const c = comments()[0]!;
+    expect(c.text).toBe(`[${screen.id}] zoom in on the menu`);
+    expect([c.start, c.end]).toEqual([clip(screen.id).start, clip(screen.id).start + clip(screen.id).duration]);
+    expect((await ui.core.history(ui.handle)).undo.at(-1)).toBe("Add Comment");
+
+    // Two selected, right-clicked on one: both ids, over both.
+    await select([screen.id, callout.id]);
+    await Bun.sleep(200);
+    expect(await open(callout.id)).toBe(`[${screen.id}, ${callout.id}] `);
+    await page.key("Enter", "Enter");
+    await arrived(() => comments().length === 2);
+    const both = comments().find((x) => x.id !== c.id)!;
+    expect(both.text).toBe(`[${screen.id}, ${callout.id}]`);
+    const ends = [screen.id, callout.id].map((id) => clip(id).start + clip(id).duration);
+    expect(both.start).toBe(Math.min(clip(screen.id).start, clip(callout.id).start));
+    expect(both.end).toBe(Math.max(...ends));
+
+    // Esc leaves none.
+    await open(screen.id);
+    await page.key("Escape", "Escape");
+    await page.until("!document.querySelector('[data-comment-editor]')");
+    expect(comments()).toHaveLength(2);
+  } finally {
+    while ((await ui.core.history(ui.handle)).undo.length > steps) await ui.core.undo(ui.handle);
+  }
+});
+
 test.skipIf(skip)("Comments: a lane under the Sections band; a plain press scrubs, a double-click-drag writes one over a stretch, ⌥-drag one over others, ⇧M one at the playhead (typed first, ⇧Enter a new line); they overlap each other and sections; hovered, its text shows; a click picks it and takes the playhead there, a double-click edits, a drag moves it, right-click offers its menu, ⌫ deletes it", async () => {
   const steps = (await ui.core.history(ui.handle)).undo.length;
   await run("timeline.snapping", { on: false });

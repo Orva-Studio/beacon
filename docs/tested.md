@@ -5,8 +5,7 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
-## YouTube's 16:9 safe areas removed; Record opens System Settings (`feat/no-youtube-safe-areas`)
-## Paste Properties over a ⇧-click run (`feat/paste-effects-many`)
+## Editing round: safe areas, Record permissions, Paste Properties over a run, Comment on Clip (`feat/no-youtube-safe-areas`)
 
 ### Checked headless only
 
@@ -14,12 +13,14 @@ feature lands and when it is checked.
 |---|---|---|---|
 | **YouTube's 16:9 safe areas removed** (the user, 2026-11-27), with the title-safe frame and end-screen check only it had: TikTok, Reels and Shorts stay; a 16:9 canvas has no picker; a project saved showing YouTube's opens with none (no error, not saved again) | 2026-11-27 | this branch | core test (`safe-areas.test.ts`: the three layouts, a 9:16 one refused on 16:9, the stale `editor.json`); UI flow (`a 16:9 project saved showing YouTube's…`: no picker, no zones) |
 | **Record's refused permission has Open System Settings**, which opens Privacy & Security on that permission's page (`app.privacy:screen` / `camera` / `microphone`) | 2026-11-27 | this branch | UI flow (`Record lists the sources…`: the camera's button sends `app.privacy:camera`); the Screen Recording link opened by hand on macOS 27.2 (window "Screen & System Audio Recording") |
+| **⇧⌘C, a click and a ⇧-click, then ⇧⌘V** (the user, 2026-11-27): every clip in the run gets the copied effect once, one undo step. Already worked; this pins it | 2026-11-27 | this branch | UI flow (`⇧⌘C on a clip with an effect…`, real clicks and keys on four pieces of a split clip) |
+| **Comment on Clip** (the user, 2026-11-27): the clip menu's item opens a new comment in the Comments lane over the clip (or the selection it is in, first start to last end), its text starting `[clip-…]` with the caret after it; Enter alone saves the ids; Esc leaves none | 2026-11-27 | this branch | UI flow (`Comment on Clip…`: one clip, two selected, Esc); the menu item only in the app (the harness has no native menus) |
 
 ### Not checked yet
 
 - View › Safe Areas: TikTok, Instagram Reels and YouTube Shorts only; on a 16:9 project the top bar has no safe-area picker.
 - Record with a permission turned off in System Settings: does Open System Settings land on its page?
-| **⇧⌘C, a click and a ⇧-click, then ⇧⌘V** (the user, 2026-11-27): every clip in the run gets the copied effect once, one undo step. Already worked; this pins it | 2026-11-27 | this branch | UI flow (`⇧⌘C on a clip with an effect…`, real clicks and keys on four pieces of a split clip) |
+- Right-click a clip › Comment on Clip: does the comment box open over the clip with its id, and does Enter add it to the lane?
 
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 

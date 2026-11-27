@@ -36,8 +36,8 @@ export interface ViewState {
   namingSection?: { id?: string; start: number; end: number };
   /** The comment picked in the Comments lane (⌫ removes it). */
   comment?: string;
-  /** A comment being written: a new one from `start` (to `end`, seconds; none: at a moment), or `id` edited. */
-  editingComment?: { id?: string; start: number; end?: number };
+  /** A comment being written: a new one from `start` (to `end`, seconds; none: at a moment), or `id` edited; `text`: a new one's opening words. */
+  editingComment?: { id?: string; start: number; end?: number; text?: string };
   /** False after a save failed, until one succeeds. */
   saved?: boolean;
   /** Assets whose proxy is being made, and its progress 0-1. */
