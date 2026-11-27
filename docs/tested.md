@@ -5,7 +5,7 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
-## Editing round: safe areas, Record permissions, Paste Properties over a run, Comment on Clip (`feat/no-youtube-safe-areas`)
+## Editing round: safe areas, Record permissions, Paste Properties over a run, Comment on Clip, the DMG window (`feat/no-youtube-safe-areas`)
 
 ### Checked headless only
 
@@ -15,12 +15,14 @@ feature lands and when it is checked.
 | **Record's refused permission has Open System Settings**, which opens Privacy & Security on that permission's page (`app.privacy:screen` / `camera` / `microphone`) | 2026-11-27 | this branch | UI flow (`Record lists the sources…`: the camera's button sends `app.privacy:camera`); the Screen Recording link opened by hand on macOS 27.2 (window "Screen & System Audio Recording") |
 | **⇧⌘C, a click and a ⇧-click, then ⇧⌘V** (the user, 2026-11-27): every clip in the run gets the copied effect once, one undo step. Already worked; this pins it | 2026-11-27 | this branch | UI flow (`⇧⌘C on a clip with an effect…`, real clicks and keys on four pieces of a split clip) |
 | **Comment on Clip** (the user, 2026-11-27): the clip menu's item opens a new comment in the Comments lane over the clip (or the selection it is in, first start to last end), its text starting `[clip-…]` with the caret after it; Enter alone saves the ids; Esc leaves none | 2026-11-27 | this branch | UI flow (`Comment on Clip…`: one clip, two selected, Esc); the menu item only in the app (the harness has no native menus) |
+| **The DMG window** (the user, 2026-11-27): dark background, Beacon left with an arrow to Applications, labels on light pills, Beacon's volume icon; `package-hook.ts` applies `dmg/` to the DMG Electrobun makes | 2026-11-27 | this branch | v0.22.2's DMG restyled by `dmg/style.ts` and opened in Finder, screenshot by the agent (AeroSpace tiled the window, so its 640×428 size was read from the `.DS_Store`) |
 
 ### Not checked yet
 
 - View › Safe Areas: TikTok, Instagram Reels and YouTube Shorts only; on a 16:9 project the top bar has no safe-area picker.
 - Record with a permission turned off in System Settings: does Open System Settings land on its page?
 - Right-click a clip › Comment on Clip: does the comment box open over the clip with its id, and does Enter add it to the lane?
+- The next release's DMG on a Mac without a window manager: does it open at 640×428 with the background, both labels readable, and the Beacon icon on the mounted disk?
 
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 

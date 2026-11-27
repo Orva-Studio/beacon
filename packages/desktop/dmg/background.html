@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 640px;
+        height: 400px;
+        overflow: hidden;
+      }
+      body {
+        position: relative;
+        background:
+          radial-gradient(420px 260px at 50% 118%, rgba(62, 230, 141, 0.16), transparent 70%),
+          radial-gradient(520px 300px at 50% -30%, rgba(255, 255, 255, 0.05), transparent 70%),
+          #0b0d0c;
+        color: #cdd5d0;
+        font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      h1 {
+        position: absolute;
+        top: 44px;
+        width: 100%;
+        text-align: center;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #edf3ef;
+      }
+      h1 b {
+        color: #3ee68d;
+        font-weight: 600;
+      }
+      /* Finder draws the icons at (160, 196) and (480, 196), 128 px; these are the wells they sit in. */
+      .well {
+        position: absolute;
+        top: 112px;
+        width: 168px;
+        height: 192px;
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.035);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      .well.app {
+        left: 76px;
+      }
+      .well.apps {
+        left: 396px;
+        border: 1.5px dashed rgba(62, 230, 141, 0.45);
+        background: rgba(62, 230, 141, 0.05);
+      }
+      /* Finder draws item labels in black on a background picture, even in dark mode, so each sits on a light pill. */
+      .pill {
+        position: absolute;
+        top: 268px;
+        height: 22px;
+        border-radius: 11px;
+        background: #dfe6e2;
+      }
+      .pill.app {
+        left: 116px;
+        width: 88px;
+      }
+      .pill.apps {
+        left: 424px;
+        width: 112px;
+      }
+      svg.arrow {
+        position: absolute;
+        left: 262px;
+        top: 172px;
+        width: 116px;
+        height: 48px;
+      }
+      p {
+        position: absolute;
+        bottom: 34px;
+        width: 100%;
+        text-align: center;
+        font-size: 13px;
+        color: #8a948f;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Drag <b>Beacon</b> to Applications</h1>
+    <div class="well app"></div>
+    <div class="well apps"></div>
+    <div class="pill app"></div>
+    <div class="pill apps"></div>
+    <svg class="arrow" viewBox="0 0 116 48" fill="none">
+      <path d="M6 24h96" stroke="#3ee68d" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 11" />
+      <path d="M90 10l16 14-16 14" stroke="#3ee68d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    <p>Then open Beacon from your Applications folder.</p>
+  </body>
+</html>
