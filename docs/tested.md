@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Comment on Clip (`feat/comment-on-clip`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **Comment on Clip** (the user, 2026-11-27): the clip menu's item opens a new comment in the Comments lane over the clip (or the selection it is in, first start to last end), its text starting `[clip-…]` with the caret after it; Enter alone saves the ids; Esc leaves none | 2026-11-27 | this branch | UI flow (`Comment on Clip…`: one clip, two selected, Esc); the menu item only in the app (the harness has no native menus) |
+
+### Not checked yet
+
+- Right-click a clip › Comment on Clip: does the comment box open over the clip with its id, and does Enter add it to the lane?
+
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 
 ### Checked headless only
