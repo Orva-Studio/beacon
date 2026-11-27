@@ -5,6 +5,14 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## Paste Properties over a ⇧-click run (`feat/paste-effects-many`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **⇧⌘C, a click and a ⇧-click, then ⇧⌘V** (the user, 2026-11-27): every clip in the run gets the copied effect once, one undo step. Already worked; this pins it | 2026-11-27 | this branch | UI flow (`⇧⌘C on a clip with an effect…`, real clicks and keys on four pieces of a split clip) |
+
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 
 ### Checked headless only
