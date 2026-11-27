@@ -5,6 +5,18 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## The DMG's window: drag Beacon to Applications (`feat/dmg-window`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **The DMG window** (the user, 2026-11-27): dark background, Beacon left with an arrow to Applications, labels on light pills, Beacon's volume icon; `package-hook.ts` applies `dmg/` to the DMG Electrobun makes | 2026-11-27 | this branch | v0.22.2's DMG restyled by `dmg/style.ts` and opened in Finder, screenshot by the agent (AeroSpace tiled the window, so its 640×428 size was read from the `.DS_Store`) |
+
+### Not checked yet
+
+- The next release's DMG on a Mac without a window manager: does it open at 640×428 with the background, both labels readable, and the Beacon icon on the mounted disk?
+
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 
 ### Checked headless only
