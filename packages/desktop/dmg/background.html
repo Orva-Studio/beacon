@@ -7,18 +7,27 @@
         box-sizing: border-box;
         margin: 0;
       }
+      /*
+       * Finder draws the picture at its size from the top left and fills the rest of a bigger window with white (a
+       * window manager or a user can make it bigger), so the picture is far larger than the 640x400 window: the
+       * design in its top left, the glows placed in its coordinates so they fade out past it, dark beyond.
+       */
       html,
       body {
-        width: 640px;
-        height: 400px;
+        width: 2560px;
+        height: 1600px;
         overflow: hidden;
       }
       body {
-        position: relative;
         background:
-          radial-gradient(420px 260px at 50% 118%, rgba(62, 230, 141, 0.16), transparent 70%),
-          radial-gradient(520px 300px at 50% -30%, rgba(255, 255, 255, 0.05), transparent 70%),
+          radial-gradient(420px 260px at 320px 472px, rgba(62, 230, 141, 0.16), transparent 70%),
+          radial-gradient(520px 300px at 320px -120px, rgba(255, 255, 255, 0.05), transparent 70%),
           #0b0d0c;
+      }
+      .stage {
+        position: relative;
+        width: 640px;
+        height: 400px;
         color: #cdd5d0;
         font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
         -webkit-font-smoothing: antialiased;
@@ -89,6 +98,7 @@
     </style>
   </head>
   <body>
+    <div class="stage">
     <h1>Drag <b>Beacon</b> to Applications</h1>
     <div class="well app"></div>
     <div class="well apps"></div>
@@ -99,5 +109,6 @@
       <path d="M90 10l16 14-16 14" stroke="#3ee68d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
     </svg>
     <p>Then open Beacon from your Applications folder.</p>
+    </div>
   </body>
 </html>

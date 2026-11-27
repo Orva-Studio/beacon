@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { $ } from "bun";
 
 const WINDOW = { width: 640, height: 400 };
+// The picture's size (background.html's body): dark past the window's own 640x400, as Finder doesn't stretch it.
+const PICTURE = { width: 2560, height: 1600 };
 const ICONS = { app: { x: 160, y: 196 }, applications: { x: 480, y: 196 }, size: 128 };
 
 // Finder saves the window's frame as it ended up, which a window manager may have resized. The frame is a string in a
@@ -27,12 +29,14 @@ const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const here = import.meta.dir;
 const work = mkdtempSync(join(tmpdir(), "beacon-dmg-layout-"));
 const shot = async (scale: number, out: string) =>
-  await $`${CHROME} --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=${scale} --virtual-time-budget=2000 --window-size=${WINDOW.width},${WINDOW.height} --screenshot=${out} file://${join(here, "background.html")}`.quiet();
+  await $`${CHROME} --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=${scale} --virtual-time-budget=2000 --window-size=${PICTURE.width},${PICTURE.height} --screenshot=${out} file://${join(here, "background.html")}`.quiet();
 
 try {
   await shot(1, join(work, "bg.png"));
   await shot(2, join(work, "bg@2x.png"));
-  await $`tiffutil -cathidpicheck ${join(work, "bg.png")} ${join(work, "bg@2x.png")} -out ${join(here, "background.tiff")}`.quiet();
+  await $`tiffutil -cathidpicheck ${join(work, "bg.png")} ${join(work, "bg@2x.png")} -out ${join(work, "bg.tiff")}`.quiet();
+  // Mostly flat colour: compressed, it stays small at this size.
+  await $`tiffutil -lzw ${join(work, "bg.tiff")} -out ${join(here, "background.tiff")}`.quiet();
 
   const root = join(work, "root");
   mkdirSync(join(root, "Beacon.app"), { recursive: true });
