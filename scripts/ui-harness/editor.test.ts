@@ -1317,6 +1317,10 @@ test.skipIf(skip)("Record lists the sources with their devices, counts down, and
   expect([await on("Screen"), await on("Camera"), await on("Microphone"), await on("System audio")]).toEqual([true, false, true, true]);
   await page.evaluate(`document.querySelector('[data-source="Camera"]').click()`);
   await page.until("!!document.querySelector('[data-permission=camera]')");
+  expect(await page.evaluate<boolean>("!!document.querySelector('[data-permission=screen]')")).toBe(false);
+  const opened = ui.menus.length;
+  await page.evaluate("document.querySelector('[data-permission-open=camera]').click()");
+  await arrived(() => ui.menus.slice(opened).includes("app:app.privacy:camera"));
   await page.evaluate(`document.querySelector('[data-source="System audio"]').click()`);
   const before = ui.menus.length;
   await page.evaluate("document.querySelector('[data-record-start]').click()");
@@ -4842,6 +4846,27 @@ test.skipIf(skip)("safe areas on a 9:16 project: the picker offers the platforms
     expect(await shownNow()).toBeUndefined();
     expect(existsSync(join(path, "editor.json"))).toBe(false);
     expect(await p.evaluate<boolean>("!!document.querySelector('[data-safe-key]')")).toBe(false);
+  } finally {
+    p.close();
+    await other.close();
+  }
+}, 60_000);
+
+test.skipIf(skip)("a 16:9 project saved showing YouTube's safe areas (since removed) opens with none: no picker, no zones drawn", async () => {
+  const cacheDir = join(dir, "wide-safe-cache");
+  const core = new LocalCore({ cacheDir });
+  const path = join(dir, "wide-safe.beproj");
+  const h = await core.create({ path, settings: { width: 1920, height: 1080 } });
+  await core.run(h, "edit.addAnnotation", { preset: "text", time: 0, duration: 4 });
+  await core.close(h);
+  writeFileSync(join(path, "editor.json"), JSON.stringify({ features: { "safe-areas": { layout: "youtube" } } }));
+  const other = await serveUi(path, { cacheDir });
+  const p = await openPage(other.url);
+  try {
+    await p.until("!!document.querySelector('[data-canvas-overlay]')");
+    await Bun.sleep(500);
+    expect(await p.evaluate<boolean>("!!document.querySelector('[data-safe-areas]')")).toBe(false);
+    expect(await p.evaluate<number>("[...document.querySelectorAll('[data-canvas-overlay] svg line')].filter((l) => +l.getAttribute('stroke-width') > 10).length")).toBe(0);
   } finally {
     p.close();
     await other.close();

@@ -5,6 +5,20 @@ the real app; **headless** is an agent (UI-harness flows, renders, core queries)
 window. A change to something after its check moves it back to *Not checked yet*. Update this file when a
 feature lands and when it is checked.
 
+## YouTube's 16:9 safe areas removed; Record opens System Settings (`feat/no-youtube-safe-areas`)
+
+### Checked headless only
+
+| What | Date | Commit | How |
+|---|---|---|---|
+| **YouTube's 16:9 safe areas removed** (the user, 2026-11-27), with the title-safe frame and end-screen check only it had: TikTok, Reels and Shorts stay; a 16:9 canvas has no picker; a project saved showing YouTube's opens with none (no error, not saved again) | 2026-11-27 | this branch | core test (`safe-areas.test.ts`: the three layouts, a 9:16 one refused on 16:9, the stale `editor.json`); UI flow (`a 16:9 project saved showing YouTube's…`: no picker, no zones) |
+| **Record's refused permission has Open System Settings**, which opens Privacy & Security on that permission's page (`app.privacy:screen` / `camera` / `microphone`) | 2026-11-27 | this branch | UI flow (`Record lists the sources…`: the camera's button sends `app.privacy:camera`); the Screen Recording link opened by hand on macOS 27.2 (window "Screen & System Audio Recording") |
+
+### Not checked yet
+
+- View › Safe Areas: TikTok, Instagram Reels and YouTube Shorts only; on a 16:9 project the top bar has no safe-area picker.
+- Record with a permission turned off in System Settings: does Open System Settings land on its page?
+
 ## About window: © Orva Studio Limited (`chore/about-copyright`)
 
 ### Checked headless only
@@ -649,7 +663,7 @@ feature lands and when it is checked.
 |---|---|---|---|
 | Remove Retakes: the AI panel's tile opens a review; each take marked on the timeline (kept green, the rest red), a click keeps another; one at a time lists the group's takes (click to keep, ▶ plays one and stops at its end); Apply All and Cut This One, one undo step each; keeping an earlier take cuts only the later one's repeat | 2026-10-20 | `5fff4a6` | Core tests on `audio.m4a` under a transcript with two restarted lines (text after Apply, exact undo, Cut This One); UI flow; the detector over the 105 cached transcripts on this Mac (70 groups, read through) |
 | Best Take: Beacon's own scoring or OpenAI with the transcriber's key; OpenAI asked only when the review opens (once per medium), its picks shown with why, Beacon's while it answers or when it can't (a bad key's message shown) | 2026-10-20 | `5fff4a6` | Core test and UI flow with OpenAI's API stood in (the request's words, the picks applied, a 401's message); Settings flow (key typed in Best Take, shared with the transcriber's row, removed: back to Beacon's) |
-| Safe areas: the top bar's picker offers TikTok, Reels and Shorts on 9:16 (YouTube on 16:9), the zones drawn over the canvas, the captions under TikTok's caption band counted and the first gone to; clear once moved; a box's side snaps to a zone's edge; None hides them; kept with the project in `editor.json`, not as an edit | 2026-10-20 | this commit | Core test on a 1080×1920 project with `audio.m4a` and captions (default captions flagged in the caption band, centred ones in the action rail, clean higher; a text box under the rail; the layout back after reopening, `editor.json` gone with None); UI flow |
+| Safe areas: the top bar's picker offers TikTok, Reels and Shorts on 9:16 (YouTube on 16:9 until 2026-11-27), the zones drawn over the canvas, the captions under TikTok's caption band counted and the first gone to; clear once moved; a box's side snaps to a zone's edge; None hides them; kept with the project in `editor.json`, not as an edit | 2026-10-20 | this commit | Core test on a 1080×1920 project with `audio.m4a` and captions (default captions flagged in the caption band, centred ones in the action rail, clean higher; a text box under the rail; the layout back after reopening, `editor.json` gone with None); UI flow |
 | Settings one size with General, Recording, Transcripts (transcriber, Best Take) and Shortcuts down a sidebar, the long section scrolling inside it; Project Settings a dialog of its own from ⌥⌘, the canvas menu and `ui_open projectSettings` (Settings' Project tab refused with why), its changes undoable | 2026-10-20 | this commit | UI flows (sizes equal across sections; ⌥⌘, opens it; a background change shown and undone; agents open and close it); the transcriber, speech model and offline flows moved to Transcripts |
 | Film Look: eleven sliders, hance's 41 looks in a Look menu (Custom once a slider moves), Import .hlook… with what doesn't map listed, `filmLook.load` for agents, each one undo step; preview equal to export, grain moving per frame | 2026-10-20 | this commit | Core tests on `video.mp4` (CineStill 800T's values and report, warmer, the offscreen preview byte-identical to the export at 1080p, undo exact; a sparse .hlook's defaults and report; a bad file refused); UI flow; one frame against hance's own render of the same look: 49.5 dB; 1080p preview frames 4.8 → 9.5 ms with CineStill 800T |
 | A window per project: the first opens in the start screen's window, the next beside it, one already open brought forward, a third from a window with a project in a third; Save As keeps its window; closing a window saves and releases its project; edits stay in their project; playing in one window stops the others | 2026-10-20 | this commit | Desktop test of the window logic with stand-in windows and a real core on three projects of `video.mp4` (`packages/desktop/__tests__/windows.test.ts`); the app itself not launched: `app.test.ts` can't build while `electrobun dev` runs |
@@ -680,7 +694,7 @@ feature lands and when it is checked.
 - Import progress in the app: dropping a big file from your camera, its placeholder tile and the panel.
 - Remove Retakes in the app: Cut All, the list, click to pick then keep, and whether the marks follow a cut on your own talk.
 - A take whose microphone fails in the app: the panel's red Mic chip and Not saving while it records, the menu-bar title, and the sheet's line after Stop.
-- Safe areas in the app: the zones drawn by the native preview over a real Short (and a 16:9 project with YouTube's), View › Safe Areas, and whether the zones match what TikTok, Reels and Shorts cover on your phone.
+- Safe areas in the app: the zones drawn by the native preview over a real Short , View › Safe Areas, and whether the zones match what TikTok, Reels and Shorts cover on your phone.
 
 ## Phase 8.5 (`phase-8.5`)
 

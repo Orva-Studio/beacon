@@ -27,7 +27,7 @@ test.skipIf(!existsSync(AUDIO))("a 9:16 Short's captions under TikTok's caption 
   await core.run(h, "captions.create", {});
 
   // Only a layout for the canvas's shape.
-  await expect(core.run(h, "safeAreas.show", { layout: "youtube" })).rejects.toThrow(/16:9 canvas; this one is 9:16/);
+  await expect(core.run(h, "safeAreas.show", { layout: "youtube" })).rejects.toThrow();
   await core.run(h, "safeAreas.show", { layout: "tiktok" });
   const layouts = (await core.query(h, "safeAreas.layouts", {})) as { id: string; fits: boolean; zones: { id: string; rect: number[] }[] }[];
   expect(layouts.filter((l) => l.fits).map((l) => l.id)).toEqual(["tiktok", "reels", "shorts"]);
@@ -132,5 +132,24 @@ test("the key hides parts of the safe areas: kept with the project and across pl
   expect((await core.session(again)).features["safe-areas"]).toEqual({ layout: "reels", hidden: ["eyeLine"] });
   await core.run(again, "safeAreas.toggle", { part: "eyeLine" });
   expect(JSON.parse(readFileSync(join(path, "editor.json"), "utf8"))).toEqual({ features: { "safe-areas": { layout: "reels" } } });
+  await core.close(again);
+});
+
+test("a 16:9 canvas has no safe areas: none fit, a 9:16 one is refused, and a project saved showing YouTube's (since removed) opens with none", async () => {
+  const core = new LocalCore({ cacheDir: join(dir, "cache-wide") });
+  const path = join(dir, "wide.beproj");
+  const h = await core.create({ path, settings: { width: 1920, height: 1080 } });
+  const layouts = (await core.query(h, "safeAreas.layouts", {})) as { id: string; fits: boolean }[];
+  expect(layouts.map((l) => l.id)).toEqual(["tiktok", "reels", "shorts"]);
+  expect(layouts.some((l) => l.fits)).toBe(false);
+  await expect(core.run(h, "safeAreas.show", { layout: "shorts" })).rejects.toThrow(/9:16 canvas; this one is 16:9/);
+  await expect(core.query(h, "safeAreas.check", {})).rejects.toThrow(/no platform's safe areas are for a 16:9 canvas/);
+  await core.close(h);
+
+  writeFileSync(join(path, "editor.json"), JSON.stringify({ features: { "safe-areas": { layout: "youtube", hidden: ["eyeLine"] } } }));
+  const again = await core.open(path);
+  expect((await core.session(again)).features["safe-areas"]).toEqual({ layout: "youtube", hidden: ["eyeLine"] });
+  // Checked as if none were shown, not refused for a layout that's gone.
+  await expect(core.query(again, "safeAreas.check", {})).rejects.toThrow(/no platform's safe areas are for a 16:9 canvas/);
   await core.close(again);
 });

@@ -43,20 +43,6 @@
       ],
       "headroom": [0.1, 0.155],
       "eyeLine": 0.3
-    },
-    {
-      "id": "youtube",
-      "title": "YouTube",
-      "aspect": [16, 9],
-      "source": "The player's title bar and its controls and captions while hovered; the 90% title-safe frame; end screens over the last 20 s",
-      "zones": [
-        { "id": "top", "label": "Title and channel (on hover)", "rect": [0, 0, 1, 0.12] },
-        { "id": "bottom", "label": "Player controls and captions", "rect": [0, 0.85, 1, 1] }
-      ],
-      "titleSafe": 0.9,
-      "endScreen": 20,
-      "headroom": [0.05, 0.12],
-      "eyeLine": 0.3333
     }
   ]
 }

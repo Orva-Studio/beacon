@@ -23,6 +23,8 @@ export interface RecordHost extends SyncCheckHost {
   recordPreview(sources: RecordSources): void;
   recordFrames(after: number): Promise<RecordFrames>;
   run(command: string, args?: unknown, label?: string): void;
+  /** The app's own actions (`app.privacy:screen` opens that permission's page in System Settings). */
+  app(id: string): void;
 }
 
 
@@ -35,12 +37,15 @@ const SETTINGS: Record<"screen" | "camera" | "microphone", string> = {
   microphone: "Microphone",
 };
 
-/** Where to give a permission that was refused, under its source. */
-function permission(kind: keyof typeof SETTINGS, status: string): ReactNode {
+/** Where to give a permission that was refused, under its source, with a button to that page of System Settings. */
+function permission(host: RecordHost, kind: keyof typeof SETTINGS, status: string): ReactNode {
   if (status === "granted" || status === "not asked") return undefined;
   return (
-    <span className="text-warning" data-permission={kind}>
+    <span className="flex flex-wrap items-center gap-x-2 text-warning" data-permission={kind}>
       Allow Beacon in System Settings › Privacy & Security › {SETTINGS[kind]}
+      <button type="button" className="cursor-pointer text-accent underline-offset-2 hover:underline" onClick={() => host.app(`app.privacy:${kind}`)} data-permission-open={kind}>
+        Open System Settings
+      </button>
     </span>
   );
 }
@@ -233,7 +238,7 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
         </div>
       )}
       <div className="flex flex-col gap-3" data-record {...(narration ? { "data-narration": true } : {})}>
-        <Source label="Screen" hint={permission("screen", sheet.permissions.screen)} on={!!s.screen} setOn={(on) => setS({ ...s, screen: on ? { display: display(undefined)?.id, fps: 60 } : undefined })}>
+        <Source label="Screen" hint={permission(host, "screen", sheet.permissions.screen)} on={!!s.screen} setOn={(on) => setS({ ...s, screen: on ? { display: display(undefined)?.id, fps: 60 } : undefined })}>
           <div className="w-56">
             <DeviceSelect devices={sheet.displays.map((d, i) => ({ id: d.id, name: displayName(i, d) }))} value={display(s.screen?.display)?.id} onChange={(id) => setS({ ...s, screen: { ...s.screen, display: id } })} />
           </div>
@@ -244,12 +249,12 @@ function RecordDialog({ sheet, host }: { sheet: RecordSheet; host: RecordHost })
             </Select>
           </div>
         </Source>
-        <Source label="Camera" hint={permission("camera", sheet.permissions.camera)} on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
+        <Source label="Camera" hint={permission(host, "camera", sheet.permissions.camera)} on={!!s.camera} setOn={(on) => setS({ ...s, camera: on ? { id: sheet.cameras[0]?.id } : undefined })}>
           <div className="w-72">
             <DeviceSelect devices={sheet.cameras} value={s.camera?.id} onChange={(id) => setS({ ...s, camera: { id } })} />
           </div>
         </Source>
-        <Source label="Microphone" hint={permission("microphone", sheet.permissions.microphone)} on={!!s.microphone} setOn={(on) => setS({ ...s, microphone: on ? { id: sheet.microphones[0]?.id } : undefined })}>
+        <Source label="Microphone" hint={permission(host, "microphone", sheet.permissions.microphone)} on={!!s.microphone} setOn={(on) => setS({ ...s, microphone: on ? { id: sheet.microphones[0]?.id } : undefined })}>
           <div className="w-72">
             <DeviceSelect devices={sheet.microphones} value={s.microphone?.id} onChange={(id) => setS({ ...s, microphone: { id } })} />
           </div>

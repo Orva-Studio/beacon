@@ -210,7 +210,6 @@ export function createMenus(app: MenusApp) {
                   ["tiktok", "TikTok"],
                   ["reels", "Instagram Reels"],
                   ["shorts", "YouTube Shorts"],
-                  ["youtube", "YouTube (16:9)"],
                 ] as const
               ).map(([id, label]) => ({ ...item(`safeAreas.show:${id}`, { label, enabled: open }), checked: safeArea === id })),
             ],

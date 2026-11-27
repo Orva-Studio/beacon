@@ -337,11 +337,21 @@ async function saveDiagnostics() {
   status(`Saved ${basename(file)}: look it over, then attach it to your report`);
 }
 
+const PRIVACY: Record<string, string> = { screen: "Privacy_ScreenCapture", camera: "Privacy_Camera", microphone: "Privacy_Microphone" };
+
+/** System Settings › Privacy & Security, on the page for one permission (screen, camera, microphone). */
+function openPrivacy(kind: string) {
+  const pane = PRIVACY[kind];
+  if (!pane) return report(new Error(`no privacy page for "${kind}"`));
+  Bun.spawn(["/usr/bin/open", `x-apple.systempreferences:com.apple.preference.security?${pane}`], { stdio: ["ignore", "ignore", "ignore"] });
+}
+
 /** The app's own actions, from their menu items, the command palette or keys a window matched, in that window. */
 function appAction(id: string, w: Win | undefined = focused): void {
   if (id === "app.open") return void projects.openDialog().catch(report);
   if (id === "app.checkUpdates") return void checkForUpdates({ status, stopped: () => stopped });
   if (id === "app.diagnostics") return void saveDiagnostics().catch(report);
+  if (id.startsWith("app.privacy:")) return openPrivacy(id.slice(12));
   // With every window closed (the app stays up while the recorder's are open), one comes back for it.
   const target = w ?? openWindow();
   if (id === "app.new") return void projects.newProject(target);
